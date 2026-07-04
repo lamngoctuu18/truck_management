@@ -79,6 +79,13 @@ Sau khi sửa `.env`, khởi động lại hệ thống.
 - **Báo cáo** (`/reports`): tổng hợp theo ngày, xuất CSV.
 - **Cấu hình** (`/config`): **kéo chuột để đặt lại vạch ảo** trực tiếp trên khung hình.
 
+### Tài liệu API (Swagger)
+- **Swagger UI** (`/docs`): tài liệu tương tác — xem, thử gọi mọi API ngay trên trình duyệt.
+  API được nhóm theo chức năng (Hệ thống, Nguồn video, Sự kiện xe, Cảnh báo, Cân xe…).
+- **ReDoc** (`/redoc`): giao diện tài liệu đọc dạng trang.
+- **OpenAPI JSON** (`/openapi.json`): schema để sinh client hoặc import vào Postman.
+- Truy cập nhanh qua mục **API (Swagger)** ở menu sidebar.
+
 ## 5. Cấu trúc mã nguồn
 
 ```

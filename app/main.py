@@ -19,7 +19,32 @@ from app.core.pipeline import AnalyticsPipeline
 
 log = get_logger("Main")
 
-app = FastAPI(title="AI Bóc tách - Đếm xe chở đất/gạch")
+# Nhóm API theo chức năng để Swagger UI dễ đọc
+tags_metadata = [
+    {"name": "Hệ thống", "description": "Trạng thái pipeline, phiên đếm, thông tin chung."},
+    {"name": "Nguồn video", "description": "Đổi/tải nguồn video, phát lại (không cần restart)."},
+    {"name": "Sự kiện xe", "description": "Truy vấn lượt xe IN/OUT, hiệu chỉnh & đọc lại biển số."},
+    {"name": "Chuyến xe", "description": "Chuyến hoàn chỉnh ghép lượt vào + ra."},
+    {"name": "Xe chờ lâu", "description": "Xe đứng yên quá lâu trong vùng chờ (realtime)."},
+    {"name": "Cảnh báo", "description": "Cảnh báo bất thường và xử lý."},
+    {"name": "Cân xe & đối soát", "description": "Nạp phiếu cân CSV/Excel, đối soát với sự kiện xe."},
+    {"name": "Báo cáo", "description": "Tổng hợp số liệu theo ngày."},
+    {"name": "Cấu hình", "description": "Vạch ảo line-crossing và vùng chờ."},
+]
+
+app = FastAPI(
+    title="AI Đếm xe chở đất/gạch vào–ra nhà máy",
+    description=(
+        "REST API cho hệ thống Camera Analytics: nhận diện xe (YOLOv8) → tracking "
+        "(ByteTrack) → đếm line-crossing IN/OUT → đọc biển số → đối soát cân xe.\n\n"
+        "- **Tài liệu tương tác**: `/docs` (Swagger UI) · `/redoc` (ReDoc)\n"
+        "- **OpenAPI JSON**: `/openapi.json`\n"
+        "- **Video trực tiếp**: `/video_feed` (MJPEG) · **Realtime**: `/ws` (WebSocket)"
+    ),
+    version="1.0.0",
+    openapi_tags=tags_metadata,
+    contact={"name": "Nhóm dự án", "email": "lamngoctuk55@gmail.com"},
+)
 
 # Static + templates
 app.mount("/media", StaticFiles(directory=str(BASE_DIR / "data")), name="media")
@@ -54,42 +79,42 @@ async def _shutdown():
 
 
 # ==================== TRANG HTML ====================
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def dashboard():
     return render("dashboard.html")
 
 
-@app.get("/events", response_class=HTMLResponse)
+@app.get("/events", response_class=HTMLResponse, include_in_schema=False)
 async def events_page():
     return render("events.html")
 
 
-@app.get("/trips", response_class=HTMLResponse)
+@app.get("/trips", response_class=HTMLResponse, include_in_schema=False)
 async def trips_page():
     return render("trips.html")
 
 
-@app.get("/waiting", response_class=HTMLResponse)
+@app.get("/waiting", response_class=HTMLResponse, include_in_schema=False)
 async def waiting_page():
     return render("waiting.html")
 
 
-@app.get("/alerts", response_class=HTMLResponse)
+@app.get("/alerts", response_class=HTMLResponse, include_in_schema=False)
 async def alerts_page():
     return render("alerts.html")
 
 
-@app.get("/reconcile", response_class=HTMLResponse)
+@app.get("/reconcile", response_class=HTMLResponse, include_in_schema=False)
 async def reconcile_page():
     return render("reconcile.html")
 
 
-@app.get("/reports", response_class=HTMLResponse)
+@app.get("/reports", response_class=HTMLResponse, include_in_schema=False)
 async def reports_page():
     return render("reports.html")
 
 
-@app.get("/config", response_class=HTMLResponse)
+@app.get("/config", response_class=HTMLResponse, include_in_schema=False)
 async def config_page():
     return render("config.html")
 
@@ -109,7 +134,7 @@ def _mjpeg_generator():
         time.sleep(0.04)
 
 
-@app.get("/video_feed")
+@app.get("/video_feed", include_in_schema=False)
 async def video_feed():
     return StreamingResponse(
         _mjpeg_generator(),
@@ -139,7 +164,7 @@ async def ws_endpoint(ws: WebSocket):
 
 
 # ==================== REST API ====================
-@app.get("/api/status")
+@app.get("/api/status", tags=["Hệ thống"], summary="Trạng thái hệ thống")
 async def api_status():
     return {
         "pipeline_running": pipeline.is_running(),
@@ -157,20 +182,20 @@ async def api_status():
     }
 
 
-@app.get("/api/session")
+@app.get("/api/session", tags=["Hệ thống"], summary="Trạng thái phiên đếm")
 async def api_session():
     """Trạng thái phiên đếm đang hiển thị trên dashboard demo."""
     return pipeline.session_status()
 
 
-@app.post("/api/session/reset")
+@app.post("/api/session/reset", tags=["Hệ thống"], summary="Reset bộ đếm phiên")
 async def api_session_reset():
     """Reset bộ đếm/tracking của phiên, không xoá lịch sử database."""
     pipeline.request_reset("manual")
     return {"ok": True, "message": "Da yeu cau reset phien dem"}
 
 
-@app.post("/api/video/replay")
+@app.post("/api/video/replay", tags=["Nguồn video"], summary="Phát lại video từ đầu")
 async def api_video_replay():
     """Phát nguồn hiện tại lại từ đầu bằng một phiên đếm mới."""
     pipeline.replay_source()
@@ -178,7 +203,7 @@ async def api_video_replay():
 
 
 # ==================== NGUỒN VIDEO (đổi khi đang chạy) ====================
-@app.get("/api/video/sources")
+@app.get("/api/video/sources", tags=["Nguồn video"], summary="Danh sách video có sẵn")
 async def api_video_sources():
     """Liệt kê video có sẵn trong data/videos + nguồn hiện tại."""
     videos_dir = BASE_DIR / "data" / "videos"
@@ -192,7 +217,7 @@ async def api_video_sources():
     return {"current": str(pipeline.video_source), "videos": files}
 
 
-@app.post("/api/video/upload")
+@app.post("/api/video/upload", tags=["Nguồn video"], summary="Tải video lên & dùng ngay")
 async def api_video_upload(file: UploadFile = File(...)):
     """Upload file video vào data/videos rồi chuyển sang dùng ngay."""
     name = os.path.basename(file.filename or "upload.mp4")
@@ -211,7 +236,7 @@ async def api_video_upload(file: UploadFile = File(...)):
             "session_reset": True}
 
 
-@app.post("/api/video/switch")
+@app.post("/api/video/switch", tags=["Nguồn video"], summary="Đổi nguồn video (file/webcam/RTSP)")
 async def api_video_switch(request: Request):
     """Đổi nguồn video: file có sẵn, webcam (0/1...), hoặc URL rtsp://."""
     b = await request.json()
@@ -222,7 +247,7 @@ async def api_video_switch(request: Request):
     return {"ok": True, "source": src, "session_reset": True}
 
 
-@app.get("/api/waiting")
+@app.get("/api/waiting", tags=["Xe chờ lâu"], summary="Xe đang chờ trong vùng giám sát")
 async def api_waiting():
     """Danh sách xe đang chờ trong vùng giám sát (realtime, từ pipeline)."""
     rows = []
@@ -239,7 +264,7 @@ async def api_waiting():
     return {"count": len(rows), "vehicles": rows}
 
 
-@app.get("/api/config/zone")
+@app.get("/api/config/zone", tags=["Cấu hình"], summary="Lấy cấu hình vùng chờ")
 async def api_get_zone():
     from app.db.models import ZoneConfig
     s = get_session()
@@ -254,7 +279,7 @@ async def api_get_zone():
         s.close()
 
 
-@app.post("/api/config/zone")
+@app.post("/api/config/zone", tags=["Cấu hình"], summary="Cập nhật vùng chờ + ngưỡng")
 async def api_set_zone(request: Request):
     """Cấu hình vùng chờ + ngưỡng thời gian (mục cấu hình 6.8)."""
     from app.db.models import ZoneConfig, CameraConfig
@@ -288,7 +313,7 @@ async def api_set_zone(request: Request):
         s.close()
 
 
-@app.get("/api/summary")
+@app.get("/api/summary", tags=["Báo cáo"], summary="Tổng quan hôm nay")
 async def api_summary():
     """Tổng quan hôm nay (mục dashboard 6.8)."""
     s = get_session()
@@ -314,7 +339,7 @@ async def api_summary():
         s.close()
 
 
-@app.get("/api/events")
+@app.get("/api/events", tags=["Sự kiện xe"], summary="Danh sách sự kiện xe IN/OUT")
 async def api_events(limit: int = 100, plate: str = "", direction: str = "",
                      cargo: str = "", session: str = ""):
     s = get_session()
@@ -336,7 +361,7 @@ async def api_events(limit: int = 100, plate: str = "", direction: str = "",
         s.close()
 
 
-@app.post("/api/events/{event_id}/plate")
+@app.post("/api/events/{event_id}/plate", tags=["Sự kiện xe"], summary="Hiệu chỉnh biển số")
 async def api_correct_plate(event_id: int, request: Request):
     """Hiệu chỉnh biển số (6.4 - cho phép người vận hành sửa)."""
     body = await request.json()
@@ -359,7 +384,7 @@ async def api_correct_plate(event_id: int, request: Request):
         s.close()
 
 
-@app.post("/api/events/{event_id}/reread")
+@app.post("/api/events/{event_id}/reread", tags=["Sự kiện xe"], summary="Đọc lại biển số 1 sự kiện")
 async def api_reread_plate(event_id: int):
     """Chạy lại ALPR trên snapshot của một sự kiện."""
     from app.core.plate_backfill import reread_event_plate
@@ -370,7 +395,7 @@ async def api_reread_plate(event_id: int):
     return JSONResponse(result, status_code=422 if result.get("error") != "event not found" else 404)
 
 
-@app.post("/api/events/reread-missing")
+@app.post("/api/events/reread-missing", tags=["Sự kiện xe"], summary="Đọc lại 50 biển thiếu")
 async def api_reread_missing(limit: int = Query(50, ge=1, le=200)):
     """Đọc lại tối đa N sự kiện chưa có biển, dùng chung một recognizer."""
     from app.core.plate_backfill import reread_event_plate
@@ -400,7 +425,7 @@ async def api_reread_missing(limit: int = Query(50, ge=1, le=200)):
             "failed": len(results) - matched, "results": results}
 
 
-@app.get("/api/trips")
+@app.get("/api/trips", tags=["Chuyến xe"], summary="Danh sách chuyến xe hoàn chỉnh")
 async def api_trips(limit: int = 100):
     s = get_session()
     try:
@@ -417,7 +442,7 @@ async def api_trips(limit: int = 100):
         s.close()
 
 
-@app.get("/api/alerts")
+@app.get("/api/alerts", tags=["Cảnh báo"], summary="Danh sách cảnh báo")
 async def api_alerts(limit: int = 100, status: str = ""):
     s = get_session()
     try:
@@ -435,7 +460,7 @@ async def api_alerts(limit: int = 100, status: str = ""):
         s.close()
 
 
-@app.post("/api/alerts/{alert_id}/done")
+@app.post("/api/alerts/{alert_id}/done", tags=["Cảnh báo"], summary="Đánh dấu đã xử lý")
 async def api_alert_done(alert_id: int):
     s = get_session()
     try:
@@ -449,7 +474,7 @@ async def api_alert_done(alert_id: int):
         s.close()
 
 
-@app.get("/api/report")
+@app.get("/api/report", tags=["Báo cáo"], summary="Báo cáo theo ngày")
 async def api_report(day: str = ""):
     """Báo cáo theo ngày, gom theo hướng + loại hàng (mục 2.5)."""
     s = get_session()
@@ -468,7 +493,7 @@ async def api_report(day: str = ""):
 
 
 # ==================== TÍCH HỢP CÂN XE (Giai đoạn 6) ====================
-@app.post("/api/weigh/import")
+@app.post("/api/weigh/import", tags=["Cân xe & đối soát"], summary="Nạp phiếu cân CSV/Excel")
 async def api_weigh_import(file: UploadFile = File(...)):
     """Import phiếu cân từ file CSV/Excel + đối soát ngay."""
     from app.core.reconcile import import_tickets
@@ -480,7 +505,7 @@ async def api_weigh_import(file: UploadFile = File(...)):
     return result
 
 
-@app.post("/api/weigh/manual")
+@app.post("/api/weigh/manual", tags=["Cân xe & đối soát"], summary="Nhập tay 1 phiếu cân")
 async def api_weigh_manual(request: Request):
     """Nhập tay 1 phiếu cân trên dashboard."""
     from app.db.models import WeighTicket
@@ -522,7 +547,7 @@ async def api_weigh_manual(request: Request):
     return {"ok": True}
 
 
-@app.post("/api/weigh/reconcile")
+@app.post("/api/weigh/reconcile", tags=["Cân xe & đối soát"], summary="Chạy lại đối soát")
 async def api_weigh_reconcile():
     """Chạy lại đối soát toàn bộ phiếu chưa ghép."""
     from app.core.reconcile import reconcile_all
@@ -530,7 +555,7 @@ async def api_weigh_reconcile():
     return {"ok": True, "matched": n}
 
 
-@app.get("/api/weigh/tickets")
+@app.get("/api/weigh/tickets", tags=["Cân xe & đối soát"], summary="Danh sách phiếu cân")
 async def api_weigh_tickets(limit: int = 200, status: str = ""):
     from app.db.models import WeighTicket
     s = get_session()
@@ -552,7 +577,7 @@ async def api_weigh_tickets(limit: int = 200, status: str = ""):
 
 
 # ==================== CONFIG API ====================
-@app.get("/api/config/line")
+@app.get("/api/config/line", tags=["Cấu hình"], summary="Lấy cấu hình vạch ảo")
 async def api_get_line():
     s = get_session()
     try:
@@ -569,7 +594,7 @@ async def api_get_line():
         s.close()
 
 
-@app.post("/api/config/line")
+@app.post("/api/config/line", tags=["Cấu hình"], summary="Cập nhật vạch ảo line-crossing")
 async def api_set_line(request: Request):
     """Cấu hình vạch ảo (mục cấu hình dashboard 6.8)."""
     body = await request.json()
