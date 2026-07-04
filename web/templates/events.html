@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sự kiện xe · AI Đếm xe</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% include "_sidebar.html" %}
+<main class="main">
+  <div class="page-head"><div><h2>Sự kiện xe vào/ra</h2><div class="sub">Danh sách lượt xe, biển số, bằng chứng — có thể hiệu chỉnh biển số AI đọc sai</div></div></div>
+
+  <div class="toolbar">
+    <input id="fPlate" placeholder="🔍 Tìm biển số…" style="min-width:180px">
+    <select id="fDir"><option value="">Tất cả hướng</option><option value="IN">Vào (IN)</option><option value="OUT">Ra (OUT)</option></select>
+    <select id="fCargo"><option value="">Tất cả hàng</option><option value="SOIL">Đất</option><option value="BRICK">Gạch</option><option value="EMPTY">Rỗng</option><option value="UNKNOWN">Chưa xác định</option></select>
+    <button class="primary" onclick="load()">Lọc</button>
+    <button onclick="document.getElementById('fPlate').value='';document.getElementById('fDir').value='';document.getElementById('fCargo').value='';load()">Xoá lọc</button>
+    <label class="session-filter"><input type="checkbox" id="fSession" onchange="load()"> Chỉ phiên hiện tại</label>
+    <button id="retryMissing" onclick="rereadMissing()">↻ Đọc lại 50 biển thiếu</button>
+    <span class="sub" id="ocrMsg"></span>
+  </div>
+
+  <div class="card">
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th>ID</th><th>Ảnh</th><th>Biển số</th><th>Hướng</th><th>Loại xe</th>
+        <th>Hàng</th><th>Tải</th><th>Conf</th><th>Thời gian</th><th>Bằng chứng</th><th></th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="11" class="empty">Đang tải…</td></tr></tbody>
+    </table>
+    </div>
+  </div>
+</main>
+<script src="/static/app.js"></script>
+<script>
+async function load(){
+  const p = new URLSearchParams({
+    plate: document.getElementById('fPlate').value,
+    direction: document.getElementById('fDir').value,
+    cargo: document.getElementById('fCargo').value, limit: 200
+  });
+  if(document.getElementById('fSession').checked && currentSession) p.set('session', currentSession);
+  const rows = await api('/api/events?'+p);
+  const tb = document.getElementById('rows');
+  if(!rows.length){ tb.innerHTML = '<tr><td colspan="11" class="empty">Chưa có sự kiện nào</td></tr>'; return; }
+  tb.innerHTML = rows.map(r=>{
+    const plate = r.corrected_plate_number || r.plate_number || '';
+    const thumb = r.snapshot_url ? `<img class="thumb" src="${esc(r.snapshot_url)}" onclick="showMedia('${esc(r.snapshot_url)}')">` : '–';
+    const clip = r.video_clip_url ? `<button class="sm" onclick="showMedia('${esc(r.video_clip_url)}')">▶ Clip</button>` : '';
+    const plateCrop = r.plate_crop_url ? `<button class="sm" onclick="showMedia('${esc(r.plate_crop_url)}')">🔎 Biển</button>` : '';
+    const hasConf = ['OCR_OK','MANUAL'].includes(r.plate_status) && r.plate_confidence > 0;
+    const lowConf = hasConf && r.plate_confidence < 0.4 ? 'style="color:var(--amber)"' : '';
+    let plateHtml;
+    if(plate){ plateHtml = `${esc(plate)} ${r.corrected_plate_number?badge('VERIFIED'):''}`; }
+    else if(r.plate_status==='OCR_DISABLED'){ plateHtml = '<span class="ocr-state disabled">OCR chưa bật</span>'; }
+    else if(r.plate_status==='OCR_NOT_FOUND'){ plateHtml = '<span class="ocr-state missing">Không thấy biển</span>'; }
+    else if(r.plate_status==='SNAPSHOT_MISSING'){ plateHtml = '<span class="ocr-state missing">Thiếu snapshot</span>'; }
+    else { plateHtml = '<span class="ocr-state pending">Chưa xử lý</span>'; }
+    const cargo = r.cargo_type && r.cargo_type!=='UNKNOWN' ? badge(r.cargo_type) : '–';
+    const loadStatus = r.load_status && r.load_status!=='UNKNOWN' ? badge(r.load_status) : '–';
+    return `<tr>
+      <td>${r.id}</td><td>${thumb}</td>
+      <td class="plate-cell">${plateHtml}</td>
+      <td>${badge(r.direction)}</td><td>${esc(r.vehicle_type)}</td>
+      <td>${cargo}</td><td>${loadStatus}</td>
+      <td ${lowConf}>${hasConf?r.plate_confidence:'–'}</td>
+      <td>${esc(r.event_time)}</td>
+      <td>${plateCrop} ${clip}</td>
+      <td><button class="sm" onclick="reread(${r.id})">↻ Đọc</button> <button class="sm" onclick="editPlate(${r.id},'${esc(plate)}')">✎ Sửa</button></td>
+    </tr>`;
+  }).join('');
+}
+async function editPlate(id, cur){
+  const v = prompt('Nhập biển số đúng cho sự kiện #'+id+':', cur==='?'?'':cur);
+  if(v===null) return;
+  await api(`/api/events/${id}/plate`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({plate:v})});
+  toast('Đã lưu', 'Biển số sự kiện #'+id+' → '+v.toUpperCase(), 'INFO');
+  load();
+}
+async function reread(id){
+  const msg = document.getElementById('ocrMsg');
+  msg.textContent = `Đang đọc lại sự kiện #${id}…`;
+  const r = await fetch(`/api/events/${id}/reread`, {method:'POST'}).then(x=>x.json());
+  msg.textContent = r.ok ? `✓ #${id}: ${r.plate} (${r.plate_confidence})` : `✗ #${id}: ${r.error}`;
+  toast('OCR biển số', msg.textContent, r.ok?'INFO':'WARN');
+  load();
+}
+async function rereadMissing(){
+  const btn = document.getElementById('retryMissing'), msg = document.getElementById('ocrMsg');
+  btn.disabled = true; msg.textContent = 'Đang đọc lại tối đa 50 snapshot…';
+  try{
+    const r = await fetch('/api/events/reread-missing?limit=50', {method:'POST'}).then(x=>x.json());
+    msg.textContent = `✓ Đã đọc ${r.processed}, nhận ra ${r.matched}, chưa thấy ${r.failed}`;
+    toast('Đọc lại biển số', msg.textContent, r.failed?'WARN':'INFO');
+    load();
+  } finally { btn.disabled = false; }
+}
+let currentSession = '';
+async function init(){
+  try{
+    const session = await api('/api/session');
+    currentSession = session.session_id || '';
+    document.getElementById('ocrMsg').textContent = session.ocr_enabled ? 'OCR đang bật' : 'OCR đang tắt';
+  }catch(_){ }
+  load();
+}
+init();
+const bus = new RealtimeBus();
+bus.on(d=>{ if(['vehicle_event','plate_update','plate_backfill_done'].includes(d.type)) load(); });
+</script>
+</body>
+</html>

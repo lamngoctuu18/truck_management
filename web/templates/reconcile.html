@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đối soát cân · AI Đếm xe</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .upload-box { border:2px dashed var(--border); border-radius:10px; padding:22px; text-align:center; color:var(--text-dim); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .grid2 .full { grid-column:1/3; }
+  .field label { display:block; font-size:11px; color:var(--text-dim); margin-bottom:4px; text-transform:uppercase; }
+  .field { margin-bottom:10px; }
+  .field input, .field select { width:100%; }
+</style>
+</head>
+<body>
+{% include "_sidebar.html" %}
+<main class="main">
+  <div class="page-head">
+    <div><h2>Đối soát cân xe / phiếu xuất kho</h2>
+      <div class="sub">Nạp phiếu cân (CSV/Excel) hoặc nhập tay → đối soát biển số + thời gian với sự kiện xe AI (Giai đoạn 6)</div>
+    </div>
+    <button class="primary" onclick="reconcile()">🔄 Đối soát lại</button>
+  </div>
+
+  <div class="grid stats-grid">
+    <div class="stat in"><div class="label">Đã ghép (MATCHED)</div><div class="value" id="c-match">0</div></div>
+    <div class="stat alert"><div class="label">Lệch (MISMATCH)</div><div class="value" id="c-mismatch">0</div></div>
+    <div class="stat yard"><div class="label">Chưa ghép</div><div class="value" id="c-unmatch">0</div></div>
+  </div>
+
+  <div class="split">
+    <div class="card">
+      <div class="card-head"><h3>📤 Nạp phiếu cân từ file</h3></div>
+      <div class="card-body">
+        <div class="upload-box">
+          <input type="file" id="file" accept=".csv,.xlsx,.xlsm">
+          <div style="margin-top:10px"><button class="primary" onclick="upload()">Nạp & đối soát</button></div>
+          <div style="margin-top:10px;font-size:12px">Cột hỗ trợ: biển số, số phiếu, trọng lượng vào/ra, khối lượng, loại hàng, thời gian, người cân</div>
+        </div>
+        <div id="upmsg" class="sub" style="margin-top:10px"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>✍️ Nhập tay 1 phiếu</h3></div>
+      <div class="card-body">
+        <div class="grid2">
+          <div class="field"><label>Biển số *</label><input id="m_plate" placeholder="51C-123.45"></div>
+          <div class="field"><label>Số phiếu</label><input id="m_ticket"></div>
+          <div class="field"><label>Trọng lượng vào (kg)</label><input id="m_win" type="number"></div>
+          <div class="field"><label>Trọng lượng ra (kg)</label><input id="m_wout" type="number"></div>
+          <div class="field"><label>Loại hàng</label>
+            <select id="m_cargo"><option value="">--</option><option>SOIL</option><option>BRICK</option><option>EMPTY</option></select></div>
+          <div class="field"><label>Thời gian cân</label><input id="m_time" type="datetime-local"></div>
+          <div class="field full"><label>Người cân</label><input id="m_op"></div>
+        </div>
+        <button class="primary" style="width:100%" onclick="manual()">💾 Lưu phiếu & đối soát</button>
+        <div id="mmsg" class="sub" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <div class="card-head"><h3>📋 Danh sách phiếu cân</h3>
+      <select id="fStatus" onchange="load()" class="sm">
+        <option value="">Tất cả</option><option value="MATCHED">Đã ghép</option>
+        <option value="MISMATCH">Lệch</option><option value="UNMATCHED">Chưa ghép</option>
+      </select>
+    </div>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>Số phiếu</th><th>Biển số</th><th>TL vào</th><th>TL ra</th><th>Khối lượng</th><th>Hàng</th><th>Thời gian</th><th>Nguồn</th><th>SK xe</th><th>Đối soát</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="10" class="empty">Chưa có phiếu cân nào</td></tr></tbody>
+    </table>
+    </div>
+  </div>
+</main>
+<script src="/static/app.js"></script>
+<script>
+async function load(){
+  const st = document.getElementById('fStatus').value;
+  const rows = await api('/api/weigh/tickets?limit=300' + (st?('&status='+st):''));
+  // đếm trạng thái (lấy toàn bộ để đếm)
+  const all = await api('/api/weigh/tickets?limit=1000');
+  document.getElementById('c-match').textContent = all.filter(r=>r.match_status==='MATCHED').length;
+  document.getElementById('c-mismatch').textContent = all.filter(r=>r.match_status==='MISMATCH').length;
+  document.getElementById('c-unmatch').textContent = all.filter(r=>r.match_status==='UNMATCHED').length;
+  const tb = document.getElementById('rows');
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="10" class="empty">Không có phiếu</td></tr>'; return; }
+  const sBadge = s => s==='MATCHED'?badge('KHỚP','DONE'):(s==='MISMATCH'?badge('LỆCH','CRIT'):badge('CHƯA GHÉP','WARN'));
+  tb.innerHTML = rows.map(r=>`<tr>
+    <td>${esc(r.ticket_no||'–')}</td><td class="plate-cell">${esc(r.plate_number)}</td>
+    <td>${r.weight_in??'–'}</td><td>${r.weight_out??'–'}</td><td><b>${r.net_weight??'–'}</b></td>
+    <td>${r.cargo_type?badge(r.cargo_type):'–'}</td><td>${esc(r.ticket_time||'–')}</td>
+    <td>${esc(r.source)}</td><td>${r.matched_event_id?('#'+r.matched_event_id):'–'}</td>
+    <td>${sBadge(r.match_status)}${r.note?(' <span class="sub" title="'+esc(r.note)+'">ⓘ</span>'):''}</td>
+  </tr>`).join('');
+}
+async function upload(){
+  const f = document.getElementById('file').files[0];
+  if(!f){ toast('Chưa chọn file','Hãy chọn file CSV/Excel','WARN'); return; }
+  const fd = new FormData(); fd.append('file', f);
+  document.getElementById('upmsg').textContent = 'Đang nạp...';
+  const r = await fetch('/api/weigh/import', {method:'POST', body:fd}).then(x=>x.json());
+  if(r.ok){
+    document.getElementById('upmsg').textContent = `✓ Nạp ${r.imported} phiếu, bỏ qua ${r.skipped}, đã ghép ${r.matched}.`;
+    toast('Nạp phiếu cân', `${r.imported} phiếu, ghép ${r.matched}`, 'INFO');
+  } else {
+    document.getElementById('upmsg').textContent = '✗ ' + r.error;
+  }
+  load();
+}
+async function manual(){
+  const body = {
+    plate_number: document.getElementById('m_plate').value,
+    ticket_no: document.getElementById('m_ticket').value,
+    weight_in: document.getElementById('m_win').value || null,
+    weight_out: document.getElementById('m_wout').value || null,
+    cargo_type: document.getElementById('m_cargo').value,
+    ticket_time: document.getElementById('m_time').value || null,
+    operator: document.getElementById('m_op').value,
+  };
+  const r = await fetch('/api/weigh/manual', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}).then(x=>x.json());
+  document.getElementById('mmsg').textContent = r.ok ? '✓ Đã lưu và đối soát.' : ('✗ '+r.error);
+  if(r.ok){ toast('Đã lưu phiếu', body.plate_number, 'INFO'); document.getElementById('m_plate').value=''; }
+  load();
+}
+async function reconcile(){
+  const r = await fetch('/api/weigh/reconcile', {method:'POST'}).then(x=>x.json());
+  toast('Đối soát', 'Đã ghép '+r.matched+' phiếu', 'INFO');
+  load();
+}
+load();
+</script>
+</body>
+</html>

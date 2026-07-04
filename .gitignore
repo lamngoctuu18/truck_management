@@ -1,0 +1,37 @@
+# ==== Môi trường & cache (nặng, không push) ====
+venv/
+.cache/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# ==== Cấu hình bí mật (chứa mật khẩu DB) ====
+.env
+
+# ==== Model AI (nặng, tự tải lại) ====
+models/*.pt
+models/*.onnx
+
+# ==== Dữ liệu runtime & bằng chứng ====
+data/snapshots/
+data/clips/
+data/videos/
+data/training_raw/
+data/datasets/*/images/
+data/datasets/*/labels/
+data/datasets/load_cls/train/
+data/datasets/load_cls/val/
+training/runs/
+training/dataset_zip/*.zip
+
+# ==== Video & log ====
+*.mp4
+*.avi
+*.mov
+*.mkv
+logs/*.log
+
+# ==== PostgreSQL portable (nếu lỡ nằm trong project) ====
+pgsql/
+*.log

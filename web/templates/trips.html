@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chuyến xe · AI Đếm xe</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% include "_sidebar.html" %}
+<main class="main">
+  <div class="page-head"><div><h2>Chuyến xe hoàn chỉnh</h2><div class="sub">Ghép lượt vào + lượt ra theo biển số → 1 chuyến, tính thời gian lưu bãi</div></div></div>
+  <div class="card">
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>ID</th><th>Biển số</th><th>Loại xe</th><th>Hàng</th><th>Giờ vào</th><th>Giờ ra</th><th>Lưu bãi (phút)</th><th>KL hàng</th><th>Phiếu</th><th>Trạng thái</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="10" class="empty">Đang tải…</td></tr></tbody>
+    </table>
+    </div>
+  </div>
+</main>
+<script src="/static/app.js"></script>
+<script>
+async function load(){
+  const rows = await api('/api/trips?limit=200');
+  const tb = document.getElementById('rows');
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="10" class="empty">Chưa có chuyến xe hoàn chỉnh nào (cần cả lượt vào và lượt ra cùng biển số)</td></tr>'; return; }
+  tb.innerHTML = rows.map(r=>`<tr>
+    <td>${r.id}</td><td class="plate-cell">${esc(r.plate_number)}</td>
+    <td>${esc(r.vehicle_type)}</td><td>${badge(r.cargo_type||'UNKNOWN')}</td>
+    <td>${esc(r.time_in)}</td><td>${esc(r.time_out)}</td>
+    <td>${r.duration_minutes??'–'}</td><td>${r.net_weight??'–'}</td>
+    <td>${esc(r.ticket_no||'–')}</td>
+    <td>${badge(r.trip_status, r.trip_status==='COMPLETE'?'DONE':'WARN')}</td>
+  </tr>`).join('');
+}
+load();
+const bus = new RealtimeBus();
+bus.on(d=>{ if(d.type==='vehicle_event' && d.direction==='OUT') setTimeout(load,500); });
+</script>
+</body>
+</html>

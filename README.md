@@ -1,93 +1,135 @@
-# lamngoctuk55-project
+# Hệ thống AI bóc tách thông tin từ video — Đếm xe chở đất/gạch vào–ra nhà máy
 
+Bản POC theo kế hoạch triển khai: nhận diện xe (YOLOv8) → tracking (ByteTrack) →
+đếm line-crossing IN/OUT → đọc biển số (fast-alpr) → phân loại tải → lưu bằng chứng
+(ảnh/clip) → PostgreSQL → dashboard web realtime.
 
+> ⚙️ Toàn bộ thư viện + model AI được cài trong `venv` và thư mục `.cache` **trên ổ E**
+> (không đụng ổ C đang đầy). GPU: chạy CUDA nếu có (đã test trên GTX 1650).
 
-## Getting started
+---
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## 1. Yêu cầu
+- Python 3.12 (cài từ python.org, tick **"Add Python to PATH"**)
+- PostgreSQL đang chạy ở `localhost:5432`, user `postgres`, mật khẩu `123` (DB `vehicle_management` tự tạo)
+- (Tùy chọn) GPU NVIDIA + CUDA để tăng tốc
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## 2. Cài đặt (lần đầu)
 
-## Add your files
+Nhấp đúp file **`install.bat`** — script tự động:
+- Tạo môi trường ảo `venv` trong thư mục project
+- Cài PyTorch CUDA + ultralytics + fast-alpr + toàn bộ thư viện
+- Hướng cache/model AI về ổ E (tránh ổ C đầy)
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+> Lần cài đầu tải ~2.5GB (PyTorch), mất vài phút. Chỉ cần chạy **1 lần**.
+
+## 3. Chạy hệ thống
+
+Nhấp đúp **`run.bat`**, hoặc:
+
+```bash
+venv\Scripts\python.exe run.py
+```
+
+Mở trình duyệt: **http://localhost:8000**
+
+### Chế độ demo đếm xe vào/ra
+
+Dashboard chính dùng **bộ đếm theo phiên**: đổi nguồn hoặc bấm `Reset bộ đếm` sẽ
+đưa IN/OUT về 0 nhưng không xoá lịch sử trong PostgreSQL. Với file video, hệ thống dừng
+ở frame cuối; bấm `Phát lại video` để bắt đầu một phiên mới.
+
+Để ưu tiên FPS và độ ổn định khi chỉ demo đếm xe, cấu hình mặc định tắt OCR biển số,
+phân loại tải và ghi clip. Có thể bật lại từng chức năng trong `.env`.
+
+## 3. Cấu hình — file `.env`
+
+| Biến | Ý nghĩa |
+|------|---------|
+| `VIDEO_SOURCE` | Nguồn video: `0` (webcam), đường dẫn file (`data/videos/x.mp4`), hoặc URL `rtsp://...` |
+| `CAMERA_TYPE` | `GATE` / `GATE_IN` / `GATE_OUT` / `WEIGHBRIDGE` / `YARD` / `QUEUE` |
+| `FPS_PROCESS` | Số khung hình/giây đưa vào AI (giảm để đỡ tải GPU) |
+| `DEDUP_SECONDS` | Khoảng chống đếm trùng (giây) |
+| `DEMO_MODE` | Bật giao diện/luồng chạy ưu tiên cho demo đếm xe |
+| `VIDEO_LOOP` | `false`: dừng khi hết file; `true`: phát lặp và reset phiên |
+| `PLAYBACK_REALTIME` | Phát file theo FPS gốc để demo không chạy quá nhanh |
+| `COUNT_CLASSES` | Danh sách lớp cần đếm, ví dụ `car,bus,truck` |
+| `ENABLE_PLATE_RECOGNITION` | Bật/tắt OCR biển số; nguồn camera thật mặc định bật |
+| `LPR_MAX_ATTEMPTS` | Số lần OCR tối đa cho mỗi track |
+| `LPR_INTERVAL_SEC` | Khoảng nghỉ giữa hai lần OCR cùng một track |
+| `LPR_MIN_VOTES` | Số frame đồng thuận để chốt biển số |
+| `ENABLE_LOAD_CLASSIFICATION` | Bật/tắt phân loại đất/gạch/rỗng |
+| `ENABLE_EVIDENCE_CLIPS` | Bật/tắt ghi clip; snapshot vẫn luôn được lưu |
+| `ENABLE_ANALYTICS_ALERTS` | Bật/tắt cảnh báo nghiệp vụ trong phiên demo |
+| `LINE_HYSTERESIS_PX` | Vùng chết quanh vạch để chống đếm do bbox rung |
+| `IN_DIRECTION` | `down` = xe đi trên→dưới là VÀO; `up` = ngược lại |
+| `DB_*` | Kết nối PostgreSQL |
+
+Sau khi sửa `.env`, khởi động lại hệ thống.
+
+## 4. Các màn hình dashboard
+- **Tổng quan** (`/`): camera trực tiếp có vẽ vạch ảo + bbox, số xe vào/ra/còn bãi, feed sự kiện realtime.
+- **Sự kiện xe** (`/events`): danh sách lượt xe, ảnh/clip bằng chứng, **hiệu chỉnh biển số** khi AI đọc sai.
+  Có thể bấm **Đọc** để chạy lại OCR cho một snapshot hoặc **Đọc lại 50 biển thiếu**
+  để bổ sung dữ liệu cũ. Trạng thái phân biệt rõ OCR tắt, không thấy biển và đọc thành công.
+- **Chuyến xe** (`/trips`): ghép lượt vào + ra theo biển số → 1 chuyến, tính thời gian lưu bãi.
+- **Xe chờ lâu** (`/waiting`): theo dõi realtime xe đứng yên trong vùng chờ, thời gian chờ, cảnh báo khi vượt ngưỡng (6.6).
+- **Đối soát cân** (`/reconcile`): nạp phiếu cân từ CSV/Excel hoặc nhập tay, tự đối soát biển số + thời gian với sự kiện xe AI (Giai đoạn 6).
+- **Cảnh báo** (`/alerts`): 10 loại — xe ra không có lượt vào, **xe vào không ra sau X giờ**, **xe quay đầu**, **biển số ở 2 nơi**, **lệch phiếu cân**, xe chờ lâu, biển số confidence thấp, camera mất tín hiệu…
+- **Báo cáo** (`/reports`): tổng hợp theo ngày, xuất CSV.
+- **Cấu hình** (`/config`): **kéo chuột để đặt lại vạch ảo** trực tiếp trên khung hình.
+
+## 5. Cấu trúc mã nguồn
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/lamngoctuk55-group/lamngoctuk55-project.git
-git branch -M main
-git push -uf origin main
+app/
+  core/       config, logger, pipeline (vòng lặp xử lý video)
+  models_ai/  vehicle_detector, line_counter, plate_recognizer,
+              load_classifier, evidence (snapshot/clip)
+  db/         models (5 bảng theo mục 7 kế hoạch), database
+  api/        event_bus (cầu nối realtime), main (FastAPI + routes)
+web/
+  templates/  6 trang HTML + _sidebar
+  static/     style.css, app.js
+models/       yolov8n.pt, (license_plate_detector.pt nếu có)
+data/         videos, snapshots, clips
+.cache/       cache model AI (đặt trên ổ E)
 ```
 
-## Integrate with your tools
+## 6. Model AI sử dụng
+- **Nhận diện xe**: YOLOv8n (`models/yolov8n.pt`, tự tải) — lớp car/bus/truck.
+- **Tracking**: ByteTrack (tích hợp trong Ultralytics).
+- **Đọc biển số**: `fast-alpr` — detector biển số YOLOv9 + OCR MobileViT (ONNX).
+  Fallback: YOLO plate detector + EasyOCR nếu cần.
+- **Phân loại tải**: heuristic phân tích thùng xe (khung có sẵn để thay bằng model
+  chuyên biệt sau khi có dữ liệu gán nhãn tại nhà máy).
+- **Phát hiện xe chờ lâu (6.6)**: thuật toán theo dõi xe đứng yên trong vùng chờ
+  (không cần model). Cấu hình ROI + ngưỡng trong bảng `zone_config` / API `/api/config/zone`.
 
-* [Set up project integrations](https://gitlab.com/lamngoctuk55-group/lamngoctuk55-project/-/settings/integrations)
+## 7. Tích hợp cân xe / phiếu xuất kho (Giai đoạn 6)
+Vào trang **Đối soát cân** (`/reconcile`):
+- **Nạp file**: kéo file CSV/Excel do phần mềm cân xuất. Hệ thống tự nhận diện cột
+  (hỗ trợ tên tiếng Việt: "Bien so", "So phieu", "Trong luong vao"…) và đối soát ngay.
+- **Nhập tay**: điền phiếu trực tiếp trên web.
+- **Đối soát**: ghép phiếu với sự kiện xe theo biển số (đã chuẩn hoá) + thời gian trong
+  cửa sổ `RECONCILE_TIME_WINDOW_MIN` phút. Trạng thái: KHỚP / LỆCH / CHƯA GHÉP.
+  Phiếu lệch biển số sinh cảnh báo `RECONCILE_MISMATCH`.
 
-## Collaborate with your team
+## 8. Huấn luyện model với dữ liệu nhà máy
+Xem [training/README.md](training/README.md). Tóm tắt:
+- Đặt `COLLECT_TRAINING_DATA=true` trong `.env` để tự lưu ảnh crop xe khi chạy.
+- `training/train_vehicle.py` — fine-tune nhận diện xe (xe ben, container…).
+- `training/train_load_classifier.py` — train phân loại tải (đất/gạch/rỗng).
+- Model train xong tự về `models/`, hệ thống tự dùng.
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## 9. Kiểm thử nhanh (không cần web)
+```bash
+venv\Scripts\python.exe test_pipeline.py data\videos\test_traffic.mp4 150
+```
+In số xe detect, số lượt cross vạch, số sự kiện ghi DB.
 
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+## 8. Ghi chú độ chính xác
+- Độ chính xác đọc biển số phụ thuộc **góc camera + ánh sáng + biển VN**. Với video giao
+  thông chung/biển nước ngoài, OCR có thể không ra kết quả — đây là đúng thiết kế.
+- Khi lắp camera thật đúng góc (thẳng đầu/đuôi xe, đủ sáng) và biển số VN, độ chính xác
+  sẽ tăng đáng kể. Có thể fine-tune model cho biển VN ở giai đoạn sau.

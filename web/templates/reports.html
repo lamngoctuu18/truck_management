@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Báo cáo · AI Đếm xe</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% include "_sidebar.html" %}
+<main class="main">
+  <div class="page-head"><div><h2>Báo cáo theo ngày</h2><div class="sub">Tổng hợp lượt xe theo hướng và loại hàng — xuất Excel/CSV</div></div></div>
+  <div class="toolbar">
+    <input type="date" id="day">
+    <button class="primary" onclick="load()">Xem báo cáo</button>
+    <button onclick="exportCSV()">⬇ Xuất CSV</button>
+  </div>
+  <div class="grid stats-grid">
+    <div class="stat in"><div class="label">Tổng lượt</div><div class="value" id="t-total">0</div></div>
+    <div class="stat"><div class="label">Ngày báo cáo</div><div class="value" style="font-size:20px" id="t-date">–</div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Chi tiết theo hướng · loại hàng</h3></div>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>Hướng</th><th>Loại hàng</th><th>Số lượt</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="3" class="empty">Chọn ngày và bấm Xem báo cáo</td></tr></tbody>
+    </table>
+    </div>
+  </div>
+</main>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('day').value = new Date().toISOString().slice(0,10);
+let lastRows = [];
+async function load(){
+  const day = document.getElementById('day').value;
+  const d = await api('/api/report?day='+day);
+  document.getElementById('t-total').textContent = d.total;
+  document.getElementById('t-date').textContent = d.date;
+  lastRows = d.rows;
+  const tb = document.getElementById('rows');
+  if(!d.rows.length){ tb.innerHTML='<tr><td colspan="3" class="empty">Không có dữ liệu ngày này</td></tr>'; return; }
+  tb.innerHTML = d.rows.map(r=>`<tr><td>${badge(r.direction)}</td><td>${badge(r.cargo_type||'UNKNOWN')}</td><td><b>${r.count}</b></td></tr>`).join('');
+}
+function exportCSV(){
+  if(!lastRows.length){ toast('Chưa có dữ liệu','Hãy xem báo cáo trước','WARN'); return; }
+  let csv = 'Huong,Loai hang,So luot\n';
+  lastRows.forEach(r=> csv += `${r.direction},${r.cargo_type||'UNKNOWN'},${r.count}\n`);
+  const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'baocao_'+document.getElementById('day').value+'.csv';
+  a.click();
+}
+load();
+</script>
+</body>
+</html>

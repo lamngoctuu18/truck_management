@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cảnh báo · AI Đếm xe</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% include "_sidebar.html" %}
+<main class="main">
+  <div class="page-head"><div><h2>Cảnh báo bất thường</h2><div class="sub">Xe ra không có lượt vào, biển số confidence thấp, camera mất tín hiệu…</div></div></div>
+  <div class="toolbar">
+    <select id="fStatus"><option value="">Tất cả trạng thái</option><option value="NEW">Mới</option><option value="DONE">Đã xử lý</option></select>
+    <button class="primary" onclick="load()">Lọc</button>
+  </div>
+  <div class="card">
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>ID</th><th>Loại</th><th>Mức</th><th>Biển số</th><th>Nội dung</th><th>Bằng chứng</th><th>Thời gian</th><th>Trạng thái</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="9" class="empty">Đang tải…</td></tr></tbody>
+    </table>
+    </div>
+  </div>
+</main>
+<script src="/static/app.js"></script>
+<script>
+async function load(){
+  const p = new URLSearchParams({status: document.getElementById('fStatus').value, limit:200});
+  const rows = await api('/api/alerts?'+p);
+  const tb = document.getElementById('rows');
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="9" class="empty">Không có cảnh báo</td></tr>'; return; }
+  tb.innerHTML = rows.map(r=>{
+    const ev = r.evidence_url ? `<button class="sm" onclick="showMedia('${esc(r.evidence_url)}')">Xem</button>` : '–';
+    const act = r.status!=='DONE' ? `<button class="sm primary" onclick="done(${r.id})">✓ Xử lý</button>` : '';
+    return `<tr>
+      <td>${r.id}</td><td>${esc(r.alert_type)}</td><td>${badge(r.severity)}</td>
+      <td class="plate-cell">${esc(r.plate_number||'–')}</td><td>${esc(r.message)}</td>
+      <td>${ev}</td><td>${esc(r.created_at)}</td><td>${badge(r.status)}</td><td>${act}</td>
+    </tr>`;
+  }).join('');
+}
+async function done(id){
+  await api(`/api/alerts/${id}/done`, {method:'POST'});
+  load();
+}
+load();
+const bus = new RealtimeBus();
+bus.on(d=>{ if(d.type==='alert'){ toast('⚠ '+d.alert_type, d.message, d.severity); load(); } });
+</script>
+</body>
+</html>

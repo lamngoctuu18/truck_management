@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Xe chờ lâu · AI Đếm xe</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% include "_sidebar.html" %}
+<main class="main">
+  <div class="page-head">
+    <div><h2>Xe chờ lâu trong bãi</h2>
+      <div class="sub">Theo dõi xe đứng yên trong vùng chờ, tính thời gian, cảnh báo khi vượt ngưỡng (6.6)</div>
+    </div>
+    <div class="sub">Ngưỡng cảnh báo: <b id="thr">–</b></div>
+  </div>
+
+  <div class="grid stats-grid">
+    <div class="stat yard"><div class="label">Đang chờ</div><div class="value" id="c-wait">0</div></div>
+    <div class="stat alert"><div class="label">Vượt ngưỡng</div><div class="value" id="c-over">0</div></div>
+  </div>
+
+  <div class="split">
+    <div class="card">
+      <div class="card-head"><h3>📹 Vùng chờ (khung cam) — xe chờ lâu tô đỏ</h3></div>
+      <div class="card-body"><div class="video-wrap"><img src="/video_feed" id="live"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>⏱️ Xe đang chờ (realtime)</h3></div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Track</th><th>Loại xe</th><th>Thời gian chờ</th><th>Trạng thái</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="4" class="empty">Không có xe nào đang chờ</td></tr></tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+</main>
+<script src="/static/app.js"></script>
+<script>
+async function loadThr(){
+  const z = await api('/api/config/zone');
+  const m = Math.round((z.dwell_threshold_sec||1800)/60);
+  document.getElementById('thr').textContent = m + ' phút';
+}
+async function load(){
+  const d = await api('/api/waiting');
+  document.getElementById('c-wait').textContent = d.count;
+  const over = d.vehicles.filter(v=>v.over_threshold).length;
+  document.getElementById('c-over').textContent = over;
+  const tb = document.getElementById('rows');
+  if(!d.vehicles.length){ tb.innerHTML = '<tr><td colspan="4" class="empty">Không có xe nào đang chờ trong vùng giám sát</td></tr>'; return; }
+  tb.innerHTML = d.vehicles.map(v=>`<tr${v.over_threshold?' style="background:rgba(248,81,73,.08)"':''}>
+    <td>#${v.track_id}</td><td>${esc(v.vehicle_type)}</td>
+    <td><b>${esc(v.dwell_text)}</b></td>
+    <td>${v.over_threshold?badge('VƯỢT NGƯỠNG','CRIT'):badge('Đang chờ','INFO')}</td>
+  </tr>`).join('');
+}
+loadThr(); load();
+setInterval(load, 2000);
+const bus = new RealtimeBus();
+bus.on(d=>{ if(d.type==='alert' && d.alert_type==='LONG_WAIT'){ toast('⏱️ Xe chờ lâu', d.message, 'WARN'); load(); } });
+</script>
+</body>
+</html>

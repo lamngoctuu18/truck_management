@@ -1,0 +1,14 @@
+# Cấu hình dataset fine-tune nhận diện xe (YOLO format).
+# Sửa danh sách 'names' theo các loại xe thực tế tại nhà máy.
+# Đường dẫn tương đối tính từ thư mục này.
+
+path: .
+train: images/train
+val: images/val
+
+# Các lớp xe cần nhận diện. Thứ tự = class id (bắt đầu từ 0).
+names:
+  0: truck        # xe tải
+  1: dump_truck   # xe ben
+  2: container    # xe container
+  3: trailer      # xe đầu kéo/rơ-moóc

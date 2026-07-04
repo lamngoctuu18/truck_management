@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tổng quan · AI Đếm xe</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% include "_sidebar.html" %}
+<main class="main">
+  <div class="page-head">
+    <div>
+      <h2>Phiên demo đếm xe</h2>
+      <div class="sub"><span id="today"></span> · Phiên <b id="sessionId">–</b></div>
+    </div>
+    <div class="demo-actions">
+      <span class="source-state" id="sourceState">Đang khởi tạo…</span>
+      <button onclick="resetSession()">↺ Reset bộ đếm</button>
+      <button class="primary" onclick="replayVideo()">▶ Phát lại video</button>
+    </div>
+  </div>
+
+  <div class="demo-strip">
+    <span>Nguồn: <b id="videoSource">–</b></span>
+    <span>Khung hình: <b id="frameSize">–</b></span>
+    <span>FPS xử lý: <b id="fps">–</b></span>
+    <span>OCR: <b id="ocrState">–</b></span>
+  </div>
+
+  <div class="grid stats-grid">
+    <div class="stat in demo-primary"><div class="label">Xe vào · phiên này</div><div class="value" id="s-in">0</div></div>
+    <div class="stat out demo-primary"><div class="label">Xe ra · phiên này</div><div class="value" id="s-out">0</div></div>
+    <div class="stat yard demo-primary"><div class="label">Chênh lệch vào − ra</div><div class="value" id="s-yard">0</div></div>
+    <div class="stat soil"><div class="label">Sự kiện đất · hôm nay</div><div class="value" id="s-soil">0</div></div>
+    <div class="stat brick"><div class="label">Sự kiện gạch · hôm nay</div><div class="value" id="s-brick">0</div></div>
+    <div class="stat alert"><div class="label">Cảnh báo mới · hôm nay</div><div class="value" id="s-alert">0</div></div>
+  </div>
+
+  <div class="split">
+    <div class="card">
+      <div class="card-head">
+        <h3>📹 Camera trực tiếp — nhận diện & vạch ảo</h3>
+        <span class="sub" id="camName"></span>
+      </div>
+      <div class="card-body">
+        <div class="video-wrap"><img src="/video_feed" alt="live" id="liveImg"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>🔴 Sự kiện realtime</h3></div>
+      <div class="feed" id="feed">
+        <div class="empty">Đang chờ xe qua vạch…</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('today').textContent = new Date().toLocaleDateString('vi-VN',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+
+async function loadSummary(){
+  const d = await api('/api/summary');
+  updateLiveStats(d.live || {});
+  document.getElementById('s-soil').textContent = d.soil_trips;
+  document.getElementById('s-brick').textContent = d.brick_trips;
+  document.getElementById('s-alert').textContent = d.alerts;
+}
+loadSummary();
+setInterval(loadSummary, 15000);
+
+function updateLiveStats(s){
+  if(s.in !== undefined) document.getElementById('s-in').textContent = s.in;
+  if(s.out !== undefined) document.getElementById('s-out').textContent = s.out;
+  if(s.in_yard !== undefined) document.getElementById('s-yard').textContent = s.in_yard;
+  if(s.fps !== undefined) document.getElementById('fps').textContent = s.fps;
+}
+
+const stateLabels = {
+  idle:'Chưa chạy', starting:'Đang khởi tạo', running:'Đang xử lý',
+  ended:'Video đã kết thúc', offline:'Mất nguồn', switching:'Đang đổi nguồn', stopped:'Đã dừng'
+};
+function updateSession(s){
+  if(!s) return;
+  document.getElementById('sessionId').textContent = s.session_id || '–';
+  document.getElementById('videoSource').textContent = s.source || '–';
+  document.getElementById('frameSize').textContent = s.frame_width && s.frame_height ? `${s.frame_width}×${s.frame_height}${s.source_fps ? ` @ ${s.source_fps} FPS` : ''}` : '–';
+  document.getElementById('ocrState').textContent = s.ocr_enabled ? 'Đã bật' : 'Đang tắt';
+  const st = document.getElementById('sourceState');
+  st.textContent = stateLabels[s.source_state] || s.source_state || '–';
+  st.className = 'source-state ' + (s.source_state || 'idle');
+  updateLiveStats(s.stats || {});
+}
+async function loadSession(){
+  try{ updateSession(await api('/api/session')); }catch(_){ }
+}
+async function resetSession(){
+  await api('/api/session/reset', {method:'POST'});
+  feed.innerHTML = '<div class="empty">Đang chờ xe qua vạch…</div>';
+  updateLiveStats({in:0,out:0,in_yard:0,fps:0});
+  toast('Phiên đếm', 'Đã reset bộ đếm, không xoá lịch sử dữ liệu', 'INFO');
+  setTimeout(loadSession, 400);
+}
+async function replayVideo(){
+  const r = await api('/api/video/replay', {method:'POST'});
+  if(r.ok){
+    feed.innerHTML = '<div class="empty">Đang phát lại video…</div>';
+    document.getElementById('liveImg').src='/video_feed?'+Date.now();
+    toast('Video', 'Đã phát lại từ đầu bằng phiên mới', 'INFO');
+  }
+}
+loadSession();
+setInterval(loadSession, 2000);
+
+const feed = document.getElementById('feed');
+function addFeed(e){
+  if(feed.querySelector('.empty')) feed.innerHTML='';
+  const div = document.createElement('div');
+  div.className = 'feed-item';
+  const img = e.snapshot_url ? `<img src="${esc(e.snapshot_url)}" onclick="showMedia('${esc(e.snapshot_url)}')">` : '';
+  const plateText = e.plate_status==='OCR_DISABLED' ? 'OCR chưa bật' :
+    (e.plate_status==='OCR_NOT_FOUND' ? 'Không thấy biển' : (e.plate || '?'));
+  const confText = e.plate_confidence > 0 ? ` · biển ${e.plate_confidence}` : '';
+  div.innerHTML = `${img}
+    <div class="meta">
+      <div class="plate">${esc(plateText)} ${badge(e.direction)}</div>
+      <div class="info">${esc(e.vehicle_type)} · ${e.cargo_type && e.cargo_type!=='UNKNOWN'?badge(e.cargo_type):'chưa phân loại'} · ${e.event_time.split(' ')[1]||''}${confText}</div>
+    </div>`;
+  feed.insertBefore(div, feed.firstChild);
+  while(feed.children.length > 30) feed.removeChild(feed.lastChild);
+}
+
+const bus = new RealtimeBus();
+bus.on(d=>{
+  if(d.type==='vehicle_event'){
+    addFeed(d);
+    if(d.stats){
+      document.getElementById('s-in').textContent = d.stats.in;
+      document.getElementById('s-out').textContent = d.stats.out;
+      document.getElementById('s-yard').textContent = d.stats.in_yard;
+      document.getElementById('fps').textContent = d.stats.fps;
+    }
+  } else if(d.type==='alert'){
+    toast('⚠ ' + d.alert_type, d.message, d.severity);
+    loadSummary();
+  } else if(d.type==='hello'){
+    updateSession(d.session); updateLiveStats(d.stats || {});
+  } else if(d.type==='session_reset'){
+    feed.innerHTML = '<div class="empty">Đang chờ xe qua vạch…</div>';
+    updateSession(d.session);
+  } else if(d.type==='source_status'){
+    updateSession(d.session);
+  }
+});
+
+// Reload ảnh live nếu stream lỗi
+document.getElementById('liveImg').onerror = function(){
+  setTimeout(()=>{ this.src='/video_feed?'+Date.now(); }, 1500);
+};
+</script>
+</body>
+</html>
