@@ -11,7 +11,10 @@ Bản POC theo kế hoạch triển khai: nhận diện xe (YOLOv8) → tracking
 
 ## 1. Yêu cầu
 - Python 3.12 (cài từ python.org, tick **"Add Python to PATH"**)
-- PostgreSQL đang chạy ở `localhost:5432`, user `postgres`, mật khẩu `123` (DB `vehicle_management` tự tạo)
+- **(Tùy chọn) PostgreSQL** ở `localhost:5432`, user `postgres`, mật khẩu `123` (DB `vehicle_management` tự tạo)
+  - **KHÔNG có PostgreSQL vẫn chạy được**: hệ thống tự chuyển sang *chế độ không-DB* —
+    vẫn đếm xe + xem realtime, chỉ không lưu lịch sử. Đủ để **test nhanh**.
+  - Có PostgreSQL → lưu đầy đủ sự kiện, chuyến xe, cảnh báo, báo cáo.
 - (Tùy chọn) GPU NVIDIA + CUDA để tăng tốc
 
 ## 2. Cài đặt (lần đầu)

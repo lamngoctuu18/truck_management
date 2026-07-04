@@ -1,39 +1,65 @@
-"""Kết nối DB, tạo database + bảng nếu chưa có."""
+"""Kết nối DB, tạo database + bảng nếu chưa có.
+
+Chế độ chịu lỗi: nếu KHÔNG kết nối được PostgreSQL, hệ thống vẫn chạy ở chế độ
+"không-DB" (detect + track + đếm + xem realtime), chỉ không lưu lịch sử. Nhờ vậy
+người test chỉ cần install.bat + run.bat, không bắt buộc cài PostgreSQL.
+"""
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
+from app.core.logger import get_logger
 from app.db.models import Base
+
+log = get_logger("DB")
 
 _engine = None
 _SessionLocal = None
+db_available = False   # True nếu kết nối DB thành công; toàn hệ thống đọc cờ này
 
 
 def init_db():
-    """Tạo database (nếu chưa có) và toàn bộ bảng."""
-    global _engine, _SessionLocal
+    """Thử tạo database + bảng. Trả về True nếu OK, False nếu không có DB.
 
-    # 1) Tạo database nếu chưa tồn tại (PostgreSQL: không có IF NOT EXISTS,
-    #    và CREATE DATABASE phải chạy ngoài transaction -> dùng AUTOCOMMIT)
-    tmp_engine = create_engine(settings.db_url_no_db, pool_pre_ping=True,
-                               isolation_level="AUTOCOMMIT")
-    with tmp_engine.connect() as conn:
-        exists = conn.execute(
-            text("SELECT 1 FROM pg_database WHERE datname = :n"),
-            {"n": settings.DB_NAME},
-        ).scalar()
-        if not exists:
-            # Tên DB không tham số hoá được trong DDL -> escape dấu " để an toàn
-            safe_name = settings.DB_NAME.replace('"', '""')
-            conn.execute(text(f'CREATE DATABASE "{safe_name}" ENCODING \'UTF8\''))
-    tmp_engine.dispose()
+    KHÔNG ném lỗi ra ngoài -> app không crash khi thiếu PostgreSQL.
+    """
+    global _engine, _SessionLocal, db_available
+    try:
+        # 1) Tạo database nếu chưa tồn tại (PostgreSQL: không có IF NOT EXISTS,
+        #    và CREATE DATABASE phải chạy ngoài transaction -> dùng AUTOCOMMIT)
+        tmp_engine = create_engine(settings.db_url_no_db, pool_pre_ping=True,
+                                   isolation_level="AUTOCOMMIT",
+                                   connect_args={"connect_timeout": 5})
+        with tmp_engine.connect() as conn:
+            exists = conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :n"),
+                {"n": settings.DB_NAME},
+            ).scalar()
+            if not exists:
+                safe_name = settings.DB_NAME.replace('"', '""')
+                conn.execute(text(f'CREATE DATABASE "{safe_name}" ENCODING \'UTF8\''))
+        tmp_engine.dispose()
 
-    # 2) Kết nối tới database và tạo bảng
-    _engine = create_engine(settings.db_url, pool_pre_ping=True, pool_recycle=3600)
-    Base.metadata.create_all(_engine)
-    _migrate_vehicle_event()
-    _SessionLocal = sessionmaker(bind=_engine, autoflush=False, autocommit=False)
-    _seed_defaults()
-    return _engine
+        # 2) Kết nối tới database và tạo bảng
+        _engine = create_engine(settings.db_url, pool_pre_ping=True,
+                                pool_recycle=3600,
+                                connect_args={"connect_timeout": 5})
+        Base.metadata.create_all(_engine)
+        _migrate_vehicle_event()
+        _SessionLocal = sessionmaker(bind=_engine, autoflush=False, autocommit=False)
+        _seed_defaults()
+        db_available = True
+        log.info("Ket noi PostgreSQL OK - luu lich su day du.")
+        return True
+    except Exception as e:  # noqa
+        db_available = False
+        _engine = None
+        _SessionLocal = None
+        log.warning("=" * 60)
+        log.warning("KHONG ket noi duoc PostgreSQL: %s", str(e).splitlines()[0][:100])
+        log.warning("-> Chay che do KHONG-DB: van dem xe + xem realtime,")
+        log.warning("   nhung KHONG luu lich su. De luu, hay chay PostgreSQL.")
+        log.warning("=" * 60)
+        return False
 
 
 def _migrate_vehicle_event():
@@ -59,15 +85,53 @@ def _migrate_vehicle_event():
             ))
 
 
+class _NullQuery:
+    """Query giả cho chế độ không-DB: mọi thao tác trả rỗng, không lỗi."""
+    def filter(self, *a, **k): return self
+    def filter_by(self, *a, **k): return self
+    def order_by(self, *a, **k): return self
+    def group_by(self, *a, **k): return self
+    def limit(self, *a, **k): return self
+    def offset(self, *a, **k): return self
+    def join(self, *a, **k): return self
+    def all(self): return []
+    def first(self): return None
+    def scalar(self): return None
+    def count(self): return 0
+    def get(self, *a, **k): return None
+    def one_or_none(self): return None
+
+
+class _NullSession:
+    """Session giả khi không có DB: nuốt mọi thao tác ghi/đọc, không ném lỗi.
+
+    Nhờ đó code dùng session chạy bình thường; dữ liệu chỉ không được lưu.
+    """
+    def query(self, *a, **k): return _NullQuery()
+    def add(self, *a, **k): pass
+    def delete(self, *a, **k): pass
+    def commit(self): pass
+    def rollback(self): pass
+    def refresh(self, *a, **k): pass
+    def flush(self, *a, **k): pass
+    def execute(self, *a, **k): return _NullQuery()
+    def close(self): pass
+    def __enter__(self): return self
+    def __exit__(self, *a): pass
+
+
 def get_engine():
-    if _engine is None:
-        init_db()
     return _engine
 
 
 def get_session():
+    """Trả về session thật, hoặc session giả (_NullSession) nếu không có DB.
+
+    Session giả cho phép code chạy nguyên vẹn ở chế độ không-DB mà không cần
+    sửa từng chỗ gọi. Dữ liệu đơn giản là không được lưu.
+    """
     if _SessionLocal is None:
-        init_db()
+        return _NullSession()
     return _SessionLocal()
 
 

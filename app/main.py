@@ -67,10 +67,12 @@ pipeline = AnalyticsPipeline(event_bus=event_bus)
 
 @app.on_event("startup")
 async def _startup():
-    init_db()
+    ok = init_db()   # không crash nếu thiếu DB -> chế độ không-DB
     event_bus.bind_loop(asyncio.get_running_loop())
     pipeline.start()
-    log.info("Startup xong. Dashboard: http://%s:%s", settings.WEB_HOST, settings.WEB_PORT)
+    mode = "co luu lich su (PostgreSQL)" if ok else "KHONG-DB (khong luu lich su)"
+    log.info("Startup xong [%s]. Dashboard: http://%s:%s",
+             mode, settings.WEB_HOST, settings.WEB_PORT)
 
 
 @app.on_event("shutdown")
@@ -166,12 +168,14 @@ async def ws_endpoint(ws: WebSocket):
 # ==================== REST API ====================
 @app.get("/api/status", tags=["Hệ thống"], summary="Trạng thái hệ thống")
 async def api_status():
+    import app.db.database as _db
     return {
         "pipeline_running": pipeline.is_running(),
         "stats": pipeline.stats,
         "video_source": str(pipeline.video_source),
         "device": settings.DEVICE,
         "demo_mode": settings.DEMO_MODE,
+        "db_available": _db.db_available,
         "features": {
             "plate_recognition": settings.ENABLE_PLATE_RECOGNITION,
             "load_classification": settings.ENABLE_LOAD_CLASSIFICATION,
