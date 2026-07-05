@@ -19,6 +19,7 @@
     </div>
     <div class="demo-actions">
       <span class="source-state" id="sourceState">Đang khởi tạo…</span>
+      <select id="videoPicker" onchange="pickVideo()" title="Chọn video demo"></select>
       <button onclick="resetSession()">↺ Reset bộ đếm</button>
       <button class="primary" onclick="replayVideo()">▶ Phát lại video</button>
     </div>
@@ -71,6 +72,28 @@ async function checkDb(){
   }catch(_){}
 }
 checkDb();
+
+// Nạp danh sách video vào dropdown chọn nhanh
+async function loadVideoPicker(){
+  try{
+    const d = await api('/api/video/sources');
+    const sel = document.getElementById('videoPicker');
+    const cur = d.current || '';
+    sel.innerHTML = '<option value="">— Chọn video demo —</option>' +
+      d.videos.map(v=>`<option value="${esc(v.path)}"${v.path===cur?' selected':''}>${esc(v.name)} (${v.size_mb} MB)</option>`).join('') +
+      '<option value="0">📷 Webcam</option>';
+  }catch(_){}
+}
+loadVideoPicker();
+
+async function pickVideo(){
+  const src = document.getElementById('videoPicker').value;
+  if(!src) return;
+  await fetch('/api/video/switch', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({source:src})});
+  toast('Đổi video', 'Đang chuyển sang: ' + src, 'INFO');
+  // buộc tải lại luồng video mới
+  setTimeout(()=>{ document.getElementById('liveImg').src='/video_feed?'+Date.now(); loadSession(); }, 1200);
+}
 
 async function loadSummary(){
   const d = await api('/api/summary');
