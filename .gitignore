@@ -16,7 +16,9 @@ models/*.onnx
 # ==== Dữ liệu runtime & bằng chứng ====
 data/snapshots/
 data/clips/
-data/videos/
+data/videos/*
+!data/videos/videodemoOCR_biensoxe.mp4
+!data/videos/videodemo_demxe.mp4
 data/training_raw/
 data/datasets/*/images/
 data/datasets/*/labels/
@@ -30,6 +32,8 @@ training/dataset_zip/*.zip
 *.avi
 *.mov
 *.mkv
+!data/videos/videodemoOCR_biensoxe.mp4
+!data/videos/videodemo_demxe.mp4
 logs/*.log
 
 # ==== PostgreSQL portable (nếu lỡ nằm trong project) ====
